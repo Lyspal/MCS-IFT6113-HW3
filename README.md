@@ -15,7 +15,7 @@ This project implements the following mesh deformation methods:
 - biharmonic deformation
 - As-Rigid-As-Possible (ARAP) deformation
 
-### Content
+## Content
 
 This repository contains the following directories and files:
 
@@ -27,7 +27,15 @@ This repository contains the following directories and files:
 
 Meshplot is required to display the meshes.
 
-`conda install -c conda-forge meshplot`
+```bash
+conda install -c conda-forge meshplot
+```
+
+libigl python bindings are required:
+
+```bash
+conda install -c conda-forge igl
+```
 
 The following libraries where also used:
 
