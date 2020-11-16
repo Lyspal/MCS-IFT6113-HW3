@@ -1,7 +1,7 @@
 # author: Sylvain Laporte
-# program: biharmonic_deformation.py
+# program: arap_deformation.py
 # date: 2020-11-16
-# object: Implementation of biharmonic deformation
+# object: Implementation of as-rigid-as-possible deformation
 
 import argparse
 import json
@@ -30,18 +30,18 @@ def compute_d_bc(v, x_b_indices, x_b, x_bc):
         displacements[index] = x_bc[index] - v[x_b_indices[index]]
     return displacements
 
-def compute_biharmonic_displacements(K, d_b_indices, d_bc):
+def compute_arap_displacements(L, d_b_indices, d_bc):
     """Computes the displacement d for each vertex.
 
     Args:
-        K (csr_matrix): bilaplacian matrix
+        L (csr_matrix): Laplacian-Beltrami operator
         d_b_indices (ndarray): a list of the known vertices indices
         d_bc (ndarray): the displacement of the known vertices
 
     Returns:
         [ndarray]: a vector of the displacements
     """
-    n_vertices = K.shape[0]
+    n_vertices = L.shape[0]
     n_known = len(d_b_indices)
     n_unknown = n_vertices - n_known
 
@@ -62,10 +62,15 @@ def compute_biharmonic_displacements(K, d_b_indices, d_bc):
 
     unknown_indices = np.array(unknown_indices)
 
-    # Extract unknown rows and columns from K to compute A in Ax = b
-    A_intermediate = K[unknown_indices, :]
-    A_unknown_unknown = A_intermediate.tocsc()[:, unknown_indices].todense()
-    A_unknown_known = A_intermediate.tocsc()[:, d_b_indices].todense()
+    # Extract unknown rows and columns from L
+    L_intermediate = L[unknown_indices, :]
+    L_unknown_unknown = L_intermediate.tocsc()[:, unknown_indices].todense()
+    L_unknown_known = L_intermediate.tocsc()[:, d_b_indices].todense()
+
+    # Compute initial guess
+    p_init_guess = compute_guess(L_unknown_unknown, v, unknown_indices)
+
+    print(p_init_guess)
 
     # Solve using Cholesky decomposition
 
@@ -78,14 +83,14 @@ def compute_biharmonic_displacements(K, d_b_indices, d_bc):
 
     # Solve with solver: Cholesky decomposition (llt)
     # Compute Cholesky decomposition for A
-    c, low = cho_factor(A_unknown_unknown)
+    c, low = cho_factor(L_unknown_unknown)
 
     # Solve for each row of d_bc
     for i in range(3):
         d_bc_row = d_bc[:, i].reshape(n_known, 1)
 
         # Compute b in Ax = b for a row in d_bc
-        b = A_unknown_known * d_bc_row
+        b = L_unknown_known * d_bc_row
 
         # Solve Ax = b with Cholesky decomposition
         sol_for_row = cho_solve((c, low), b)
@@ -98,6 +103,41 @@ def compute_biharmonic_displacements(K, d_b_indices, d_bc):
             sol[unknown_indices[j], i] = sol_for_row[j, 0]
     
     return sol
+
+def compute_guess(L_unknown_unknown, v, unknown_indices):
+
+    Lp = L_unknown_unknown * v[unknown_indices, :]
+    At = L_unknown_unknown.transpose()
+    AtA = At * L_unknown_unknown
+
+    # Solve with solver: Cholesky decomposition (llt)
+    sol_guess = np.empty((AtA.shape[0], 3))
+
+    # Compute Cholesky decomposition for AtA
+    c, low = cho_factor(AtA)
+
+    # Solve for each row of Atb
+    for i in range(3):
+        b_row = Lp[:, i].reshape(Lp.shape[0], 1)
+
+        # Compute b in Ax = b for a row in d_bc
+        Atb = At * b_row
+
+        # Solve Ax = b with Cholesky decomposition
+        sol_for_row = cho_solve((c, low), Atb)
+
+        # Multiply sol by -1
+        sol_for_row *= -1
+
+        # Add sol_for_row in solution
+        print(type(sol_for_row))
+        print(type(sol_guess))
+        print(type(unknown_indices))
+        print(f"i: {i}")
+        for j in range(sol_for_row.shape[0]):
+            # print(f"j: {j}")
+            sol_guess[unknown_indices[j], i] = sol_for_row[j, 0]    # BUG: index 288 out of bound, but j = 238 and i = 0
+    
 
 # Define command line arguments
 parser = argparse.ArgumentParser(description="Run biharmonic deformation")
@@ -129,26 +169,26 @@ x_bc = np.array(anchors_data["new_positions"])  # new positions for the anchors
 
 d_bc = compute_d_bc(v, d_b_indices, x_b, x_bc)  # displacement of the anchors
 
-# Compute the bilaplacian
-L = compute_laplacian(v, f)
+# Compute the discrete Laplace-Beltrami operator
+C = compute_laplacian(v, f)
 M = compute_massmatrix(v, f)
 
 Mi = inv(M)
 
-K = -L * Mi * -L
-K = K.tocsr()
+L = Mi * C
+L = L.tocsr()
 
 # Generate a preview of the mesh
 eigenvalues, eigenvectors = compute_eigenv_sparse(L)
 plot(v, f, c=eigenvectors[:, 4], shading={"wireframe": True},
-    return_plot=True, filename=f"{output_file_prefix}-before.html")
+    return_plot=True, filename=f"{output_file_prefix}-before-arap.html")
 
 # Compute the displacements
-d = compute_biharmonic_displacements(K, d_b_indices, d_bc)
+d = compute_arap_displacements(L, d_b_indices, d_bc)
 
 # Compute new vertex positions
 v = v + d
 
 # Generate an image of the result
 plot(v, f, c=eigenvectors[:, 4], shading={"wireframe": True},
-    return_plot=True, filename=f"{output_file_prefix}-after.html")
+    return_plot=True, filename=f"{output_file_prefix}-after-arap.html")
