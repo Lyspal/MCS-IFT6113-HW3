@@ -1,5 +1,5 @@
 # author: Sylvain Laporte
-# program: selectanchors.py
+# program: biharmonic_deformation.py
 # date: 2020-11-16
 # object: Implementation of biharmonic deformation
 
