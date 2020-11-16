@@ -16,5 +16,5 @@ def compute_massmatrix(v,f):
     return igl.massmatrix(v,f, type=1)
 
 
-def compute_eigenv_sparse(mat, near_point=0):
+def compute_eigenv_sparse(mat, near_point=0.01):
     return scipy.sparse.linalg.eigsh(mat, k=20, sigma=near_point)
