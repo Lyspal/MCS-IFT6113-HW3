@@ -80,12 +80,12 @@ def compute_biharmonic_displacements(K, d_b_indices, d_bc):
     # Compute Cholesky decomposition for A
     c, low = cho_factor(A_unknown_unknown)
 
-    # Solve for each row of d_bc
+    # Solve for each column of d_bc
     for i in range(3):
         d_bc_row = d_bc[:, i].reshape(n_known, 1)
 
         # Compute b in Ax = b for a row in d_bc
-        b = A_unknown_known * d_bc_row
+        b = A_unknown_known.dot(d_bc_row)
 
         # Solve Ax = b with Cholesky decomposition
         sol_for_row = cho_solve((c, low), b)
@@ -135,7 +135,7 @@ M = compute_massmatrix(v, f)
 
 Mi = inv(M)
 
-K = -L * Mi * -L
+K = -L.dot(Mi.dot(-L))
 K = K.tocsr()
 
 # Generate a preview of the mesh
