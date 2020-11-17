@@ -3,15 +3,19 @@
 # date: 2020-11-16
 # object: Implementation of as-rigid-as-possible deformation
 
+import sys
 import argparse
 import json
 from scipy.linalg import cho_factor, cho_solve
-from scipy.sparse.linalg import inv
+from scipy.sparse import diags, csc_matrix
+from scipy.sparse.linalg import inv, svds
 import numpy as np
+from igl import adjacency_list
 from meshplot import offline, plot
 from scripts import load_mesh, compute_laplacian, compute_massmatrix, \
     compute_eigenv_sparse
 
+np.set_printoptions(threshold=sys.maxsize)
 offline()
 
 def compute_d_bc(v, x_b_indices, x_b, x_bc):
@@ -30,13 +34,13 @@ def compute_d_bc(v, x_b_indices, x_b, x_bc):
         displacements[index] = x_bc[index] - v[x_b_indices[index]]
     return displacements
 
-def compute_arap_displacements(L, d_b_indices, d_bc):
+def compute_arap_displacements(L, d_b_indices, x_bc, f, C, Mi):
     """Computes the displacement d for each vertex.
 
     Args:
         L (csr_matrix): Laplacian-Beltrami operator
         d_b_indices (ndarray): a list of the known vertices indices
-        d_bc (ndarray): the displacement of the known vertices
+        x_bc (ndarray): the position of the known vertices
 
     Returns:
         [ndarray]: a vector of the displacements
@@ -68,9 +72,22 @@ def compute_arap_displacements(L, d_b_indices, d_bc):
     L_unknown_known = L_intermediate.tocsc()[:, d_b_indices].todense()
 
     # Compute initial guess
-    p_init_guess = compute_guess(L_unknown_unknown, v, unknown_indices)
+    p_init_guess = compute_guess(n_vertices, n_unknown, L_unknown_unknown, v,
+        unknown_indices)
 
-    print(p_init_guess)
+    # Estimate the local rotations Ri
+    adjacency = adjacency_list(f)
+    Ri = [None] * n_vertices
+    for i in range(n_vertices):
+        Si = compute_covariance_matrix(v, p_init_guess, i, adjacency[i], C)
+        Ui, sigmai, Vti = svds(Si, k=2)
+        Ri[i] = Vti.transpose().dot(Ui.transpose())
+    Ri = np.array(Ri)
+
+    # R = np.empty((n_vertices, n_vertices, 3, 3))
+    # for i in range(n_vertices):
+    #     for j in range(n_vertices):
+    #         R[i, j] = Ri[i] + Ri[j]
 
     # Solve using Cholesky decomposition
 
@@ -79,24 +96,30 @@ def compute_arap_displacements(L, d_b_indices, d_bc):
     # Set known values in solution
     for i in range(n_known):
         for j in range(3):
-            sol[d_b_indices[i], j] = d_bc[i, j]
+            sol[d_b_indices[i], j] = x_bc[i, j]
 
     # Solve with solver: Cholesky decomposition (llt)
     # Compute Cholesky decomposition for A
     c, low = cho_factor(L_unknown_unknown)
 
-    # Solve for each row of d_bc
+    # Apply rotation to d_bc
+    Ri = Ri[d_b_indices, :, :]
+    Rp = np.empty((n_known, 3))
+    for i in range(n_known):
+        Rp[i] = Ri[i].dot(x_bc[i])
+
+    # Solve for each column of Rp
     for i in range(3):
-        d_bc_row = d_bc[:, i].reshape(n_known, 1)
+        d_bc_row = Rp[:, i].reshape(n_known, 1)
 
         # Compute b in Ax = b for a row in d_bc
-        b = L_unknown_known * d_bc_row
+        b = L_unknown_known.dot(d_bc_row)
 
         # Solve Ax = b with Cholesky decomposition
         sol_for_row = cho_solve((c, low), b)
 
         # Multiply sol by -1
-        sol_for_row *= -1
+        sol_for_row *= 1
 
         # Add sol_for_row in solution
         for j in range(sol_for_row.shape[0]):
@@ -104,24 +127,38 @@ def compute_arap_displacements(L, d_b_indices, d_bc):
     
     return sol
 
-def compute_guess(L_unknown_unknown, v, unknown_indices):
+def compute_guess(n_vertices, n_unknown, L_unknown_unknown, v, unknown_indices):
+    """Computes the initial guess based on naive Laplacian editing.
 
-    Lp = L_unknown_unknown * v[unknown_indices, :]
+    Args:
+        n_vertices (int): the number of vertices in the mesh
+        n_unknown (int): the number of unknown displacements
+        L_unknown_unknown (csr_matrix): the Laplacian for uknown displacements
+        v (ndarray): the mesh vertices
+        unknown_indices (ndarray): a list of the unknown vertices indices
+
+    Returns:
+        [type]: a n_vertices x 3 matrix of the initial guess
+    """
+    unknown_vertices = v[unknown_indices, :]
+
+    # Compute both sides of the naive Laplacian editing
+    Lp = L_unknown_unknown.dot(unknown_vertices)
     At = L_unknown_unknown.transpose()
-    AtA = At * L_unknown_unknown
+    AtA = At.dot(L_unknown_unknown)
 
     # Solve with solver: Cholesky decomposition (llt)
-    sol_guess = np.empty((AtA.shape[0], 3))
+    guess = np.empty((n_vertices, 3))
 
     # Compute Cholesky decomposition for AtA
     c, low = cho_factor(AtA)
 
-    # Solve for each row of Atb
+    # Solve for each row of Lp
     for i in range(3):
-        b_row = Lp[:, i].reshape(Lp.shape[0], 1)
+        Lp_row = Lp[:, i].reshape(n_unknown, 1)
 
-        # Compute b in Ax = b for a row in d_bc
-        Atb = At * b_row
+        # Compute b in Ax = b <=> AtAx = Atb for a row in Lp
+        Atb = At.dot(Lp_row)
 
         # Solve Ax = b with Cholesky decomposition
         sol_for_row = cho_solve((c, low), Atb)
@@ -130,14 +167,44 @@ def compute_guess(L_unknown_unknown, v, unknown_indices):
         sol_for_row *= -1
 
         # Add sol_for_row in solution
-        print(type(sol_for_row))
-        print(type(sol_guess))
-        print(type(unknown_indices))
-        print(f"i: {i}")
         for j in range(sol_for_row.shape[0]):
-            # print(f"j: {j}")
-            sol_guess[unknown_indices[j], i] = sol_for_row[j, 0]    # BUG: index 288 out of bound, but j = 238 and i = 0
+            idx_test = unknown_indices[j]
+            sol_r = sol_for_row[j, 0]
+            guess[idx_test, i] = sol_r
     
+    return guess
+
+def compute_covariance_matrix(v, guess, current_index, adjacent_vertices, C):
+    """Computes the covariance matrix.
+
+    Args:
+        v (ndarray): the mesh vertices
+        vertex_i (ndarray): the current vertex
+        adjacent_vertices (list): a list of the neighbors to vertex_i
+        C (csc_matrix): the cotangent matrix
+
+    Returns:
+        csc_matrix: the covariance matrix
+    """
+    diag_weights = C[adjacent_vertices, adjacent_vertices].tolist()
+
+    # Compute D
+    Di = diags(diag_weights, [0])
+
+    # Compute Pi
+    Pit = np.array([]).reshape(0, 3)
+    for j in adjacent_vertices:
+        eij = current_index - v[j]
+        Pit = np.concatenate((Pit, [eij]))
+    Pi = Pit.transpose()
+
+    # Compute Pi_prime
+    Pi_prime_t = np.array([]).reshape(0, 3)
+    for j in adjacent_vertices:
+        eij = guess[current_index] - guess[j]
+        Pi_prime_t = np.concatenate((Pi_prime_t, [eij]))
+
+    return csc_matrix(Pi.dot((Di.dot(Pi_prime_t))))
 
 # Define command line arguments
 parser = argparse.ArgumentParser(description="Run biharmonic deformation")
@@ -169,26 +236,32 @@ x_bc = np.array(anchors_data["new_positions"])  # new positions for the anchors
 
 d_bc = compute_d_bc(v, d_b_indices, x_b, x_bc)  # displacement of the anchors
 
-# Compute the discrete Laplace-Beltrami operator
-C = compute_laplacian(v, f)
-M = compute_massmatrix(v, f)
+# Iterate to converge
+n_iterations = 3
 
-Mi = inv(M)
+for i in range(n_iterations):
+    iteration = i + 1   # For output file name
 
-L = Mi * C
-L = L.tocsr()
+    # Compute the discrete Laplace-Beltrami operator
+    C = compute_laplacian(v, f)
+    M = compute_massmatrix(v, f)
 
-# Generate a preview of the mesh
-eigenvalues, eigenvectors = compute_eigenv_sparse(L)
-plot(v, f, c=eigenvectors[:, 4], shading={"wireframe": True},
-    return_plot=True, filename=f"{output_file_prefix}-before-arap.html")
+    Mi = inv(M)
 
-# Compute the displacements
-d = compute_arap_displacements(L, d_b_indices, d_bc)
+    L = Mi.dot(-C)
+    L = L.tocsr()
 
-# Compute new vertex positions
-v = v + d
+    # Generate a preview of the mesh
+    eigenvalues, eigenvectors = compute_eigenv_sparse(L)
+    plot(v, f, c=eigenvectors[:, 4], shading={"wireframe": True},
+        return_plot=True, filename=f"{output_file_prefix}-before-arap-it{iteration}.html")
 
-# Generate an image of the result
-plot(v, f, c=eigenvectors[:, 4], shading={"wireframe": True},
-    return_plot=True, filename=f"{output_file_prefix}-after-arap.html")
+    # Compute the displacements
+    d = compute_arap_displacements(L, d_b_indices, x_bc, f, C, Mi)
+
+    # Compute new vertex positions
+    v = v + d
+
+    # Generate an image of the result
+    plot(v, f, c=eigenvectors[:, 4], shading={"wireframe": True},
+        return_plot=True, filename=f"{output_file_prefix}-after-arap-it{iteration}.html")
