@@ -103,7 +103,7 @@ def compute_biharmonic_displacements(K, d_b_indices, d_bc):
 parser = argparse.ArgumentParser(description="Run biharmonic deformation")
 parser.add_argument("--input", "-i", default="input/bar2.off",
 	help="path to input mesh")
-parser.add_argument("--anchors", "-a", default="bar2-anchors.json",
+parser.add_argument("--anchors", "-a", default="output/bar2-anchors.json",
     help="path to the anchors' file")
 parser.add_argument("--debug", default="false", help="run in debug mode")
 args = parser.parse_args()
