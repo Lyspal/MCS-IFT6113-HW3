@@ -3,36 +3,23 @@
 # date: 2020-11-13
 # object: Tool for selecting anchor vertex for deformation
 
-import os
 import argparse
 import json
-import igl
-import scipy as sp
 import numpy as np
-from meshplot import offline, plot, subplot, interact
 from scripts import load_mesh
-
-
-root_folder = os.getcwd()
-offline()
 
 # Define command line arguments.
 parser = argparse.ArgumentParser(description="Select anchor vertices")
 parser.add_argument("--input", "-i", default="input/bar2.off",
 	help="path to input mesh")
-parser.add_argument("--debug", default="false", help="run in debug mode")
 args = parser.parse_args()
 
 input_file = args.input
 input_file_name = input_file.split(".")[0].split("/")[-1]
 output_file = f"output/{input_file_name}-anchors.json"
-debug = True if args.debug == "true" else False
 
 # Load the mesh
 v, f = load_mesh(input_file)
-
-# color = np.array([x for x in range(len(v))])
-# plot(v, f, c=color, return_plot=True, filename='test.html')
 
 # Create the output object
 data = {
