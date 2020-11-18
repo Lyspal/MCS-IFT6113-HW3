@@ -31,8 +31,8 @@ debug = True if args.debug == "true" else False
 # Load the mesh
 v, f = load_mesh(input_file)
 
-color = np.array([x for x in range(len(v))])
-plot(v, f, c=color, return_plot=True, filename='test.html')
+# color = np.array([x for x in range(len(v))])
+# plot(v, f, c=color, return_plot=True, filename='test.html')
 
 # Create the output object
 data = {
