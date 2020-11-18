@@ -14,6 +14,7 @@ from igl import adjacency_list
 from meshplot import offline, plot
 from scripts import load_mesh, compute_laplacian, compute_massmatrix, \
     compute_eigenv_sparse
+# from biharmonic_deformation import compute_d_bc, compute_biharmonic_displacements
 
 np.set_printoptions(threshold=sys.maxsize)
 offline()
@@ -149,6 +150,33 @@ def compute_guess(n_vertices, n_unknown, L_unknown_unknown, v, unknown_indices):
     
     return guess
 
+# def compute_guess2(v, d_b_indices, x_b, x_bc, L, Mi):
+#     """Computes the initial guess based on naive Laplacian editing.
+
+#     Args:
+#         n_vertices (int): the number of vertices in the mesh
+#         n_unknown (int): the number of unknown displacements
+#         L_unknown_unknown (csr_matrix): the Laplacian for uknown displacements
+#         v (ndarray): the mesh vertices
+#         unknown_indices (ndarray): a list of the unknown vertices indices
+
+#     Returns:
+#         [type]: a n_vertices x 3 matrix of the initial guess
+#     """
+#     d_bc = compute_d_bc(v, d_b_indices, x_b, x_bc)
+
+#     K = -L.dot(Mi.dot(-L))
+#     K = K.tocsr()
+#     unknown_vertices = v[unknown_indices, :]
+
+#     # Compute the displacements
+#     d = compute_biharmonic_displacements(K, d_b_indices, d_bc)
+
+#     # Compute new vertex positions
+#     guess = v + d
+
+#     return guess
+
 def compute_Ri(n_vertices, v_old, v, C):
     """Computes rotations Ri.
 
@@ -201,11 +229,15 @@ def compute_covariance_matrix(v, guess, current_index, adjacent_vertices, C):
 
     return csc_matrix(Pi.dot((Di.dot(Pi_prime_t))))
 
+#######################################
+# Program start
+#######################################
+
 # Define command line arguments
 parser = argparse.ArgumentParser(description="Run biharmonic deformation")
 parser.add_argument("--input", "-i", default="input/bar2.off",
 	help="path to input mesh")
-parser.add_argument("--anchors", "-a", default="bar2-anchors.json",
+parser.add_argument("--anchors", "-a", default="output/bar2-anchors.json",
     help="path to the anchors' file")
 parser.add_argument("--debug", default="false", help="run in debug mode")
 args = parser.parse_args()
@@ -253,6 +285,7 @@ L_unknown_known = L_intermediate.tocsc()[:, d_b_indices].todense()
 
 # STEP 2: compute the first rotations with initial guess
 initial_guess = compute_guess(n_vertices, n_unknown, L_unknown_unknown, v, unknown_indices)
+# initial_guess = compute_guess2(v, d_b_indices, x_b, x_bc, C, Mi)
 Ri = compute_Ri(n_vertices, initial_guess, v, C)
 
 # Iterate to converge
