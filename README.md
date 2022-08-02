@@ -3,7 +3,6 @@
 Homework 3 on mesh deformation done for the course IFT6113 - Modélisation géométrique et analyse de formes.
 
 Author: Sylvain Laporte  
-Matricule: C3874
 
 Due date: November 13th, 2020, 23h59
 Subbmitted: November 13th, 2020, 23h59
